@@ -1,5 +1,9 @@
 require "language_identifier/version"
 
 module LanguageIdentifier
-  # Your code goes here...
+
+  LANGUAGE_FILES_LOC =  "./seeds"
+
+
+
 end
