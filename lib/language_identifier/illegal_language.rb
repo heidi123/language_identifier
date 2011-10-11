@@ -1,0 +1,3 @@
+class IllegalLanguageError  < StandardError
+
+end
