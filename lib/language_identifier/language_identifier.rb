@@ -1,11 +1,23 @@
 require 'forwardable'
 
-module LanguageIdentifier
-  extend Forwardable
+module LanguageIdentifier extend Forwardable
   LANGUAGE_FILES_LOC =  "./lib/seeds/"
+  IllegalCharacters =  /[^a-zA-Z\-\s\.,:;?]/
+  Delimiter =/[,\.?:;\s]\s*/
 
-  def initiliaze
-    build_languages_from_seeds
+  attr_reader :languages
+
+  def_delegators :languages, :add_words_to_language, :add_words_from_file
+
+  alias :add_words_in_str_to_language  :add_words_to_language
+
+  def build_with_seeds  seeds=LANGUAGE_FILES_LOC
+    @languages= LanguageIdentifier::Languages.build_with_seeds seeds
+    self
+  end
+
+  def initialize languages=nil
+    @languages = languages || LanguageIdentifier::Languages.new
   end
 
   def guess_language_for_file filename
@@ -13,45 +25,19 @@ module LanguageIdentifier
   end
 
   #Guess the language for a given text based on the  sum of  the occurrence of  its words in the  dictionary of language
-  # Retun " UNKNOWN" if the sum of the occurences of each word in any languages in the collection is 0
+  # Return " UNKNOWN" if the sum of the occurrences of each word in any languages in the collection is 0
   def guess_language_for_str text
-
+    raise IllegalLanguageError, "Illegal characters #{$~} were detected in #{text}" if text.illegal_language?  IllegalCharacters
     language_weights={}
-    Language.each_word(text) {|word|
-      languages.each {|name, language|
+    #iterate the each word in text
+    text.words(Delimiter) do |word|
+      languages.each do |name, language|
         language_weights[name] ||= 0
         language_weights[name] += 1 if language.include?(word.downcase)
-      }
-    }
-
-    my_language = language_weights.sort{|a,b| a[1] <=> b[1]}.last[0]
-    language_weights[my_language] > 0 ? my_language : "UNKNOWN"
-  end
-
-
-
-  #Build all the language dictionaries  from the files  in the seeds folder
-  def build_languages_from_seeds
-    Dir.foreach(LANGUAGE_FILES_LOC) do |filename|
-      build_language_with_file filename  if filename =~/^[A-Z]+.\d/
+      end
     end
-    self
-  end
-
-  #Return a collection of languages
-  def languages
-    @languages ||= {}
-  end
-
-  #Return the language obj for the given Language name
-  def language  language_name
-     languages[language_name] ||= Language.new language_name
-  end
-
-  # Read the file and add all the words contained in given file to the language
-  def build_language_with_file filename
-    language_name =  File.basename(filename, ".*")
-    language(language_name).add_words( File.read(LANGUAGE_FILES_LOC + filename) ) unless File.zero?(LANGUAGE_FILES_LOC + filename)
+    my_language = language_weights.sort{|a,b| a[1] <=> b[1]}.last[0]
+    language_weights[my_language] > 0 ? my_language.to_s : "UNKNOWN"
   end
 
 

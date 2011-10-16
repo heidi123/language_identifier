@@ -1,0 +1,3 @@
+class LanguageIdentifierClass
+  include LanguageIdentifier
+end

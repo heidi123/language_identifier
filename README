@@ -1,0 +1,8 @@
+Language Problem
+
+You are given a number of files from a number of different human languages. All languages use the
+Latin alphabet A to Z or -; case can be ignored and the only punctuation characters are . , ; : ?and single
+space characters separating words. For example, you might have the files FRENCH.1, GAELIC.2 to
+GAELIC.9, ENGLISH.1 to ENGLISH.6 and so on.
+Given a file TEXT.txt in the same format but of unknown origin, Develop a program to identify its
+language.
