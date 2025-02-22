@@ -1,11 +1,17 @@
+---
+title: "DevSecOps Assessment: Build and Deployment Automation Design"
+author: "Heidi Ni"
+date: "February 21, 2025"
+---
+<!-- Add a blank line below -->
 # DevSecOps Assessment: Build and Deployment Automation Design
 
 **Prepared for Zurich Interview Session**  
 **Date:** February 21, 2025  
 **Author:** Heidi Ni
 
----
 
+---
 ## Table of Contents
 1. [Introduction](#introduction)
 2. [Technology Stack](#technology-stack)
@@ -134,6 +140,7 @@ docker:
 ```
 
 #### NodeJS
+
 ```makefile
 # Makefile (NodeJS)
 .PHONY: build test sonar security docker
@@ -163,6 +170,7 @@ docker:
 	trivy image --scanners vuln,secret --exit-code 1 --severity CRITICAL,HIGH ${APP_NAME}:${BUILD_NUMBER:-local}
 
 ```
+
 ---
 ## Application Build Pipeline
 
@@ -233,6 +241,7 @@ Dockerize:
     - name: image-tag
       pattern: "image-tag.properties
 ```
+
 ---
 ## Application Deploy Pipeline
 
@@ -276,68 +285,8 @@ Deploy:
     - script:
         - aws ecs update-service --region ${AWS_REGION} --profile ${AWS_ACCOUNT} --cluster ${PROJECT_KEY}-ecs-${ENV} --service ${PROJECT_KEY}-${APP_NAME}-${ENV} --force-new-deployment
 ```                
----
-## Application Deploy Pipeline
 
-**Purpose:** Deploy pre-built container images to ECS clusters across all environments, with manual approval dynamically set for `preprod` and `prod`.
-
-```yaml
-# bamboo-specs/app-deploy-pipeline.yml
----
-version: 2
-plan:
-  project-key: ${bamboo.PROJECT_KEY}
-  key: ${bamboo.APP_NAME}-DEPLOY
-  name: ${bamboo.APP_NAME} Deploy
-
-variables:
-  PROJECT_KEY: ${bamboo.PROJECT_KEY}
-  APP_NAME: ${bamboo.APP_NAME}
-  ENV: ${bamboo.ENV}  # ci, nonprod, preprod, prod
-  AWS_ACCOUNT: ${bamboo.AWS_ACCOUNT}
-  AWS_REGION: ${bamboo.AWS_REGION}
-  ECR_URL: "${bamboo.AWS_ACCOUNT}.dkr.ecr.${bamboo.AWS_REGION}.amazonaws.com"
-  BUILD_NUMBER: ${bamboo.BUILD_NUMBER}
-
-stages:
-  - Configure Stage:
-      jobs:
-        - Configure
-  - Approval Stage:
-      manual: ${bamboo.MANUAL_APPROVAL}
-      jobs:
-        - Approval
-  - Deploy Stage:
-      jobs:
-        - Deploy
-
-Configure:
-  tasks:
-    - script:
-        - |
-          if [ "$ENV" = "preprod" ] || [ "$ENV" = "prod" ]; then
-            echo "Setting MANUAL_APPROVAL=true for ${ENV}"
-            echo "bamboo.MANUAL_APPROVAL=true" >> $bamboo_plan_variables_file
-          else
-            echo "Setting MANUAL_APPROVAL=false for ${ENV}"
-            echo "bamboo.MANUAL_APPROVAL=false" >> $bamboo_plan_variables_file
-          fi
-
-Approval:
-  tasks:
-    - script:
-        - echo "Approval stage for ${ENV} - manual: ${bamboo.MANUAL_APPROVAL}"
-
-Deploy:
-  tasks:
-    - artifact-download:
-        source-plan: ${bamboo.PROJECT_KEY}-${bamboo.APP_NAME}-BUILD
-        artifact: image-tag
-    - script:
-        - IMAGE_TAG=$(cat image-tag.properties | grep IMAGE_TAG | cut -d'=' -f2)
-        - aws ecs update-service --region ${AWS_REGION} --profile ${AWS_ACCOUNT} --cluster ${PROJECT_KEY}-ecs-${ENV} --service ${PROJECT_KEY}-${APP_NAME}-${ENV} --force-new-deployment
-
-```        
+---   
 ## Infrastructure CI/CD Template
 
 **Purpose:** Provision infrastructure with Terraform across all environments (CI, Non-Prod, Preprod, Prod), with manual approval dynamically set for `preprod` and `prod` environments to ensure controlled deployment to production-like systems.
@@ -415,6 +364,7 @@ Apply:
         - terraform init
         - terraform apply -var-file=${ENV}.tfvars -auto-approve
 ```        
+
 ---
 ### Terraform Configuration
 
@@ -480,7 +430,7 @@ resource "aws_ecs_task_definition" "task" {
   requires_compatibilities = ["FARGATE"]
   cpu                      = "256"
   memory                   = "512"
-  container_definitions    = jsonencode([{
+  container_definitions = jsonencode([{
     name  = "${var.app_name}"
     image = "${var.ecr_url}/${var.app_name}:${each.key}-latest"
     essential = true
@@ -516,7 +466,7 @@ variable "app_name" {}
 variable "ecr_url" {}
 
 ```
-
+---
 ## Environment Segregation
 
 **Design:** Infrastructure and application deployments are segregated into four environments, each with distinct roles and isolation levels, managed across two AWS accounts:
@@ -532,6 +482,7 @@ variable "ecr_url" {}
 - **ECS Clusters**: One per environment (e.g., `${PROJECT_KEY}-ecs-ci`), isolated within their respective VPCs.
 - **Deployment Control**: CI and Non-Prod deploy automatically; Preprod and Prod require manual approval via `MANUAL_APPROVAL` set dynamically based on `ENV`.
 
+---
 ## Container Management
 
 **Deisgn:** Container images are built once in the CI environment and stored in a single ECR repository, reused across all environments (CI, Non-Prod, Preprod, Prod) with appropriate access controls.
@@ -558,6 +509,8 @@ variable "ecr_url" {}
       "Resource": "arn:aws:ecr:${AWS_REGION}:${AWS_ACCOUNT_NONPROD}:repository/${APP_NAME}"
     }
 ```
+
+---
 ## Secrets Management
 
 **Approach:** Sensitive data (e.g., passwords, API keys) is securely managed using AWS Secrets Manager, ensuring no hardcoded secrets in code or images.
@@ -574,6 +527,7 @@ variable "ecr_url" {}
   ```
 - **Pipeline Security:** Bamboo uses encrypted variables (e.g., SONAR_TOKEN, SNYK_TOKEN, NEXUS_PASSWORD) for pipeline credentials, avoiding exposure in YAML.  
 
+---
 ## Security Measures
 
 **Objective:** Ensure security across code, dependencies, containers, and runtime, preventing vulnerabilities and sensitive data leaks.
@@ -585,17 +539,20 @@ variable "ecr_url" {}
 sonar:
     sonar-scanner -Dsonar.projectKey=${APP_NAME} -Dsonar.host.url=${SONAR_HOST_URL} -Dsonar.login=${SONAR_TOKEN}
 ```
+
 - **Snyk**: Dependency scanning within make security    
 ```makefile
 security:
     snyk test --severity-threshold=high
 ``` 
+
 - **Trivy:** Container vulnerability and secret scanning within make docker     
 ```makefile
 docker:
     docker build -t ${APP_NAME}:${BUILD_NUMBER} .
     trivy image --scanners vuln,secret --exit-code 1 --severity CRITICAL,HIGH ${APP_NAME}:${BUILD_NUMBER}
 ```  
+
 - **AWS Inspector:** Continuous ECR image scanning post-push, enabled via: 
 ```hcl
 resource "aws_ecr_repository" "app" {
@@ -604,12 +561,14 @@ resource "aws_ecr_repository" "app" {
   }
 }
 ```   
+
 - **AWS GuardDuty:** Runtime threat detection across AWS accounts.
 ```hcl
 resource "aws_guardduty_detector" "detector" {
   enable = true
 }
 ```
+
 - **AWS Mercie:** Sensitive data discovery and protection, configured to identify and secure PII or sensitive data in S3 buckets used by the application.
 ```hcl
 resource "aws_macie2_account" "macie" {
@@ -617,6 +576,7 @@ resource "aws_macie2_account" "macie" {
   status                       = "ENABLED"
 }
 ```
+
 ---
 ## Branching Strategy
 **Objective:**  Ensures controlled progression from development to production, with automated testing in CI/Non-Prod and manual gates for Preprod/Prod.
@@ -629,11 +589,6 @@ resource "aws_macie2_account" "macie" {
 - **`main`**: Production branch for Prod (`ENV=prod`), triggers Deploy Pipeline with manual approval after PR from `release/*`.
 
 ---
-
-
-
-
-
 ## Architecture Diagram
  
 ```mermaid
@@ -658,7 +613,6 @@ graph LR
         subgraph ProdVPC[Prod VPC]
             PreProd[ECS Fargate Preprod]
             Prod[ECS Fargate Prod]
-           
         end
         
         ECR[ECR Repo]
@@ -669,7 +623,6 @@ graph LR
     Deploy[Bamboo Deploy] --> |10|PreProd
     Deploy[Bamboo Deploy] --> |13|Prod
 
-    
     ECR --> |5| CI
     ECR --> |8|NonProd
     ECR --> |11|PreProd
