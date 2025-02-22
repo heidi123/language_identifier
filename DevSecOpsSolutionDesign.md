@@ -634,8 +634,6 @@ flowchart TD
     J --> L[System Regression Testing]
     N --> P1[Preprod Testing]
     O --> Q[Production Release]
-
-
 ```
 
 The diagram shows the following workflow:
