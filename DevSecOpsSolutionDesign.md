@@ -61,7 +61,7 @@ This structure ensures high availability, scalability, and security across devel
 ## Application CI/CD Template
 
 **Purpose:** Build, test, containerize, and deploy applications across environments, supporting multiple languages (Python, Java, NodeJS).
----
+
 In order to support multiple programming language, we will use Makefile for each application to provide a standard way to define build, test, and deployment steps while keeping the bamboo pipeliners simple and flexible across different programming languages
 
 ### Example Makefile
@@ -635,7 +635,7 @@ resource "aws_macie2_account" "macie" {
 
 
 ## Architecture Diagram
-
+ 
 ```mermaid
 graph LR
     Developer --> |1| Bitbucket
@@ -679,10 +679,6 @@ graph LR
     QA[QA Testing] --> |9| NonProd
     QA[QA Testing] --> |12| PreProd
     Users[End Users] --> |15| Prod
-
-    
-    
-    
 
 ```
 
