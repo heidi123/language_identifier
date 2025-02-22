@@ -3,15 +3,9 @@ title: "DevSecOps Assessment: Build and Deployment Automation Design"
 author: "Heidi Ni"
 date: "February 21, 2025"
 ---
-<!-- Add a blank line below -->
+
 # DevSecOps Assessment: Build and Deployment Automation Design
 
-**Prepared for Zurich Interview Session**  
-**Date:** February 21, 2025  
-**Author:** Heidi Ni
-
-
----
 ## Table of Contents
 1. [Introduction](#introduction)
 2. [Technology Stack](#technology-stack)
@@ -24,7 +18,7 @@ date: "February 21, 2025"
 9. [Security Measures](#security-measures)
 10. [Branching Strategy](#branching-strategy)
 11. [Architecture Diagram](#architecture-diagram)
-12. [Conclusion](#conclusion)
+12. [Benifits](#benefits)
 
 ---
 
@@ -77,11 +71,12 @@ In order to support multiple programming language, we will use Makefile for each
 # Makefile (Python)
 .PHONY: build test lint sonar security docker
 
-build: lint test sonar security
+build: lint
 	pip install -r requirements.txt
 	python -m py_compile src/*.py
 
 test:
+    pip install -r requirements.txt
 	pytest
 
 lint:
@@ -189,7 +184,6 @@ variables:
   PROJECT_KEY: ${bamboo.PROJECT_KEY}
   REPO_URL: ${bamboo.REPO_URL}
   APP_NAME: ${bamboo.APP_NAME}
-  ENV: "ci"  # Fixed to CI environment
   AWS_ACCOUNT: ${bamboo.AWS_ACCOUNT}
   AWS_REGION: ${bamboo.AWS_REGION}
   ECR_URL: "${bamboo.AWS_ACCOUNT}.dkr.ecr.${bamboo.AWS_REGION}.amazonaws.com"
@@ -231,7 +225,7 @@ Dockerize:
   tasks:
     - script:
         - make docker  # Builds and scans image with Trivy
-        - aws ecr get-login-password --region ${AWS_REGION} --profile ${AWS_ACCOUNT} | docker login --username AWS --password-stdin ${ECR_URL}
+        - aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_URL}
         - docker tag ${APP_NAME}:${bamboo.buildNumber} ${ECR_URL}/${APP_NAME}:${bamboo.buildNumber}
         - docker push ${ECR_URL}/${APP_NAME}:${bamboo.buildNumber}
         - aws ecr batch-get-image --region ${AWS_REGION} --profile ${AWS_ACCOUNT} --repository-name ${APP_NAME} --image-ids imageTag=${bamboo.buildNumber} --output json | jq -r '.images[0].imageManifest' > manifest.json
@@ -263,7 +257,7 @@ variables:
   AWS_ACCOUNT: ${bamboo.AWS_ACCOUNT}
   AWS_REGION: ${bamboo.AWS_REGION}
   ECR_URL: "${bamboo.AWS_ACCOUNT}.dkr.ecr.${bamboo.AWS_REGION}.amazonaws.com"
-  BUILD_NUMBER: ${bamboo.BUILD_NUMBER}  # Passed from build pipeline
+  BUILD_NUMBER: ${bamboo.buildNumber}   # Passed from build pipeline
   MANUAL_APPROVAL: "false"  # Default: no manual approval
 
 stages:
@@ -274,6 +268,18 @@ stages:
   - Deploy Stage:
       jobs:
         - Deploy
+
+Configure:
+  tasks:
+    - script:
+        - |
+          if [ "$ENV" = "preprod" ] || [ "$ENV" = "prod" ]; then
+            echo "Setting MANUAL_APPROVAL=true for ${ENV}"
+            echo "bamboo.MANUAL_APPROVAL=true" >> $bamboo_plan_variables_file
+          else
+            echo "Setting MANUAL_APPROVAL=false for ${ENV}"
+            echo "bamboo.MANUAL_APPROVAL=false" >> $bamboo_plan_variables_file
+          fi
 
 Approval:
   tasks:
@@ -362,7 +368,7 @@ Apply:
   tasks:
     - script:
         - terraform init
-        - terraform apply -var-file=${ENV}.tfvars -auto-approve
+        - terraform apply -var-file=${bamboo.ENV}.tfvars -auto-approve
 ```        
 
 ---
@@ -555,6 +561,7 @@ docker:
 
 - **AWS Inspector:** Continuous ECR image scanning post-push, enabled via: 
 ```hcl
+
 resource "aws_ecr_repository" "app" {
   image_scanning_configuration {
     scan_on_push = true
@@ -564,13 +571,16 @@ resource "aws_ecr_repository" "app" {
 
 - **AWS GuardDuty:** Runtime threat detection across AWS accounts.
 ```hcl
+
 resource "aws_guardduty_detector" "detector" {
-  enable = true
+  enable = true  # Ensure GuardDuty is activated
+
 }
 ```
 
 - **AWS Mercie:** Sensitive data discovery and protection, configured to identify and secure PII or sensitive data in S3 buckets used by the application.
 ```hcl
+
 resource "aws_macie2_account" "macie" {
   finding_publishing_frequency = "FIFTEEN_MINUTES"
   status                       = "ENABLED"
@@ -582,84 +592,63 @@ resource "aws_macie2_account" "macie" {
 **Objective:**  Ensures controlled progression from development to production, with automated testing in CI/Non-Prod and manual gates for Preprod/Prod.
 
 **Flow:** Git branching strategy supports the CI/CD workflow:
-- **`feature/*`**: Feature development branches, merged into `develop` for CI testing.
-- **`develop`**: Integration branch for CI (`ENV=ci`), triggers Build Pipeline on commits.
-- **`nonprod`**: Testing branch for Non-Prod (`ENV=nonprod`), triggers Deploy Pipeline after PR from `develop`.
-- **`release/*`**: Pre-production staging branches for Preprod (`ENV=preprod`), triggers Deploy Pipeline with manual approval.
-- **`main`**: Production branch for Prod (`ENV=prod`), triggers Deploy Pipeline with manual approval after PR from `release/*`.
+- `feature/*`: Feature branches merged into `develop`
+- `develop`: CI (`ENV=ci`) testing branch
+- `nonprod`: Testing branch for Non-Prod (`ENV=nonprod`)
+- `release/*`: **Temporary pre-prod branches** for staging before `main`
+- `hotfix/*`: **Emergency production fixes**
+- `main`: Production-ready branch*`
 
 ---
 ## Architecture Diagram
  
 ```mermaid
-graph LR
-    Developer --> |1| Bitbucket
-    Bitbucket -->|2| Build[Bamboo Build]
-    Build -->|3a| Nexus[Nexus\nArtifacts]
-    Build -->|3e| ECR[ECR\nSingle Repo]
-    
-    subgraph Security
-        Build -->|3b| SonarQube
-        Build -->|3c| Snyk
-        Build -->|3d| Trivy
-    end
-    
-    subgraph AWS Cloud
-        subgraph NonProdVPC[Non-Prod VPC]
-            CI[ECS Fargate CI]
-            NonProd[ECS Fargate Non-Prod]
-        end
 
-        subgraph ProdVPC[Prod VPC]
-            PreProd[ECS Fargate Preprod]
-            Prod[ECS Fargate Prod]
-        end
-        
-        ECR[ECR Repo]
+flowchart TD
+    A[Developer] --> B[Bitbucket Repository]
+    B --> C[Bamboo CI/CD Pipeline]
+    C --> D[SonarQube Analysis]
+    C --> E[Nexus/ECR Repository]
+    C --> F[Terraform Infra Provisioning]
+    C --> G[AWS Secrets Manager]
+    
+    subgraph NP[Non-Prod VPC]
+      I[ECS Fargate CI Cluster]
+      J[ECS Fargate Non-Prod Cluster]
     end
 
-    Deploy[Bamboo Deploy] --> |4|CI
-    Deploy[Bamboo Deploy] --> |7|NonProd
-    Deploy[Bamboo Deploy] --> |10|PreProd
-    Deploy[Bamboo Deploy] --> |13|Prod
+    subgraph P[Prod VPC]
+      N[ECS Fargate Preprod Cluster]
+      O[ECS Fargate Prod Cluster]
+    end
 
-    ECR --> |5| CI
-    ECR --> |8|NonProd
-    ECR --> |11|PreProd
-    ECR --> |14|Prod
+    F --> NP
+    F --> P
 
-    QA[QA Testing] --> |6| CI
-    QA[QA Testing] --> |9| NonProd
-    QA[QA Testing] --> |12| PreProd
-    Users[End Users] --> |15| Prod
+    E --> I
+    E --> J
+    E --> N
+    E --> O
+
+    I --> K[CI Testing]
+    J --> L[System Regression Testing]
+    N --> P1[Preprod Testing]
+    O --> Q[Production Release]
+
 
 ```
 
 The diagram shows the following workflow:
 
-### Build 
-1. **Code Commit**: An application developer commits code to a Bitbucket repository.
-2. **Bambpp Build**: A Build Pipeline is initiated
-3. **Bamboo Build**: The pipeline builds, tests, publish artifacts and pushes a Docker image (e.g., `${APP_NAME}:${bamboo.buildNumber}`) to a single Amazon ECR repository in the non-prod AWS account, storing the image tag in `image-tag.properties`.
-### CI Deployment
-4. **CI Deployment**: The Bamboo Deploy Pipeline for CI (`ENV=ci`) is automatically initiated post-build, deploying the new image to an existing Fargate service in the CI Amazon ECS cluster.
-5. **CI Image Pull**: Amazon ECS pulls the image from the ECR repository into the CI Fargate service.
-6. **CI Testing**: Automated testing and manual testing is performed using a CI-specific URL (e.g., `ci-app.example.com`).
-###NonProd Deployment
-7. **NonProd Deployment**: A PR merged into the `nonprod` branch triggers the Bamboo Deploy Pipeline for Non-Prod (`ENV=nonprod`), automatically deploying the image to an existing Fargate service in the Non-Prod Amazon ECS cluster.
-8. **NonProd Image Pull**: Amazon ECS pulls the image from the ECR repository into the Non-Prod Fargate service.
-9. **NonProd Testing**: System and regression testing are conducted using a Non-Prod URL (e.g., `nonprod-app.example.com`).
-### PreProd Deployment
-10. **Preprod Deployment**: A PR merged into a `release/*` branch triggers the Bamboo Deploy Pipeline for Preprod (`ENV=preprod`), which pauses for manual approval before deploying the image to an existing Fargate service in the Preprod Amazon ECS cluster.
-11. **Preprod Image Pull**: Amazon ECS pulls the image from the ECR repository into the Preprod Fargate service.
-12. **Preprod Testing**: Build Verification Testing (BVT) is conducted and verified using a Preprod URL (e.g., `preprod-app.example.com`).
-### Prod Deployment
-13. **Prod Deployment**: A PR merged into the `main` branch triggers the Bamboo Deploy Pipeline for Prod (`ENV=prod`), which pauses for manual approval before deploying the image to an existing Fargate service in the Prod Amazon ECS cluster.
-14. **Prod Image Pull**: Amazon ECS pulls the image from the ECR repository into the Prod Fargate service.
-15. **Production Access**: End-users access the service via a production URL (e.g., `app.example.com`).
+* Code is committed to Bitbucket.
+* Bamboo triggers the CI/CD pipeline.
+* SonarQube analyzes the code, while artifacts are stored in Nexus/ECR.
+* Terraform provisions the infrastructure, segregating environments into Non-Prod and Prod VPCs.
+* ECS Fargate services in each environment deploy the application, with testing in CI/Non-Prod and final production deployment after Preprod testing.
+* AWS Secrets Manager handles sensitive data.
 
-## Conclusion
-Benefits:
+
+## Benefits:
 - Reusable templates reduce maintenance.
 - Secure segregation with two VPCs/accounts.
 - Automated validation, security checking
